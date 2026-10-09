@@ -27,6 +27,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "SDL2_helper.h"
 
 #define IOSGAME_QUICKSAVE_FNAME "quicksave.jks"
@@ -523,7 +524,7 @@ void iosGame_ChooseStartupGame(void)
     const char* home = getenv("HOME");
     if (!home) return;
 
-    char docs[256], jk1[256], mots[256], key[256], choiceFile[256];
+    char docs[256], jk1[256], mots[256], choiceFile[256];
     stdFnames_MakePath(docs, sizeof(docs), home, "Documents");
     stdFnames_MakePath(jk1, sizeof(jk1), docs, "jk1");
     stdFnames_MakePath(mots, sizeof(mots), docs, "mots");
@@ -532,15 +533,26 @@ void iosGame_ChooseStartupGame(void)
     stdFileUtil_MkDir(mots);
 
     // Each game is there once its folder has its jk_.cd; Mysteries of the
-    // Sith's has to be its own (as the Expansions & Mods screen checks)
-    stdFnames_MakePath(key, sizeof(key), jk1, "resource/jk_.cd");
-    int bHaveJk = util_FileExists(key);
-    stdFnames_MakePath(key, sizeof(key), mots, "resource/jk_.cd");
-    int bHaveMots = 0;
-    if (util_FileExists(key)) {
-        int keyval = jkRes_ReadKeyFromFile(key);
-        bHaveMots = JKRES_IS_MOTS_MAGIC(keyval);
+    // Sith's has to be its own (as the Expansions & Mods screen checks).
+    // Looked up from inside Documents, by relative path: the file system is
+    // case-sensitive, and when the exact case misses ("Resource", "JK_.CD")
+    // the lookup that ignores case (fcaseopen) lists every folder on the way
+    // -- from / for an absolute path, and the sandbox won't list the ones
+    // above the app's own, so it would never find it. (The data folder is
+    // chosen, and gone into, right after this.)
+    char cwd[256];
+    int bHaveCwd = getcwd(cwd, sizeof(cwd)) != NULL;
+    int bHaveJk = 0, bHaveMots = 0;
+    if (chdir(docs) == 0) {
+        bHaveJk = util_FileExists("jk1/resource/jk_.cd");
+        if (util_FileExists("mots/resource/jk_.cd")) {
+            int keyval = jkRes_ReadKeyFromFile("mots/resource/jk_.cd");
+            bHaveMots = JKRES_IS_MOTS_MAGIC(keyval);
+        }
+        if (bHaveCwd) chdir(cwd);
     }
+    stdPlatform_Printf("iOS: Jedi Knight %s, Mysteries of the Sith %s\n",
+                       bHaveJk ? "found" : "not found", bHaveMots ? "found" : "not found");
 
     int bLastMots = 0;
     FILE* f = fopen(choiceFile, "r");
@@ -571,7 +583,9 @@ void iosGame_ChooseStartupGame(void)
             bMots = button == 1;
         }
         else {
-            bMots = bLastMots; // no box (or no answer): the last game again
+            // no box (or no answer): the last game again
+            stdPlatform_Printf("iOS: game chooser didn't show: %s\n", SDL_GetError());
+            bMots = bLastMots;
         }
     }
     else {
