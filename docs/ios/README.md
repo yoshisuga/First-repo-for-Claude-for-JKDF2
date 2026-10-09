@@ -279,6 +279,13 @@ screen, the camera cutout and the HUD.
 
 Buttons are slightly see-through until you touch them.
 
+**With a game controller connected** (Xbox, PlayStation, Switch Pro or MFi,
+paired in iOS Settings > Bluetooth), FIRE, ALT, DUCK, ACT, JUMP and FORCE
+hide, since the controller does all of that: left stick to move and strafe,
+right stick to aim, triggers to fire, the face buttons for use, duck,
+activate and jump. The rest of the touch controls stay. Disconnect the
+controller and the buttons come back.
+
 ### Moving and looking
 
 - **Move:** put your left thumb down anywhere on the left side of the screen
@@ -612,8 +619,8 @@ use Setup from the main menu):
   [Settings worth knowing](#settings-worth-knowing)).
 - **No separate touch look-sensitivity setting** (the mouse sensitivity may
   work instead: see *Look speed* in [Settings worth knowing](#settings-worth-knowing)).
-- **Game controllers and hardware keyboards** haven't been tested with this
-  build.
+- **Game controllers** have had only a little testing, and **hardware
+  keyboards** none.
 - **Free Apple ID signing expires every 7 days**, and deleting the app deletes
   your files and saves.
 
