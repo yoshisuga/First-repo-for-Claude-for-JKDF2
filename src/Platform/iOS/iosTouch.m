@@ -6,6 +6,8 @@
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreMotion/CoreMotion.h>
+#include <os/lock.h>
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <string.h>
@@ -91,6 +93,24 @@ extern int jkHud_bChatOpen;
 // shows is kept in the app's settings under this key
 #define IOSTOUCH_FPS_PERIOD 0.5
 #define IOSTOUCH_FPS_DEFAULTS_KEY @"iosTouchShowFps"
+// Gyro aiming (GYRO turns it on and off; remembered between launches under
+// this key): turning the phone turns the view, along with dragging. The view
+// turns IOSTOUCH_GYRO_SCALE degrees for each degree the phone turns, at the
+// game's default mouse sensitivity (like dragging, it goes with that setting).
+// Turning slower than IOSTOUCH_GYRO_TIGHTEN degrees a second counts for less
+// and less, so a hand's slight shake doesn't shake the view. Samples come
+// IOSTOUCH_GYRO_HZ times a second; one after a longer gap than
+// IOSTOUCH_GYRO_MAX_GAP seconds (just started, or back from the background)
+// only starts the count.
+#define IOSTOUCH_GYRO_DEFAULTS_KEY @"iosTouchGyro"
+#define IOSTOUCH_GYRO_SCALE 1.5
+#define IOSTOUCH_GYRO_TIGHTEN 3.0
+#define IOSTOUCH_GYRO_HZ 100.0
+#define IOSTOUCH_GYRO_MAX_GAP 0.1
+// Game mouse units per degree of view turn, at the default mouse sensitivity
+// (sithControl_RegisterMouseBindings: 0.4 degrees a unit across, 0.3 up and down)
+#define IOSTOUCH_MOUSE_PER_DEG_X (1.0 / 0.4)
+#define IOSTOUCH_MOUSE_PER_DEG_Y (1.0 / 0.3)
 // A one-off key press is held for this many control reads, then released for one
 #define IOSTOUCH_PULSE_READS 2
 
@@ -115,6 +135,7 @@ enum {
     KIND_ITEM,     // uses an inventory item when the touch lifts on it; only shown while the player has it
     KIND_CHAT,     // (MENU tray) opens or closes the typing line for cheats, when the touch lifts on it
     KIND_FPS,      // (MENU tray) shows or hides the FPS readout, when the touch lifts on it
+    KIND_GYRO,     // turns gyro aiming on or off, when the touch lifts on it
 };
 
 // Keys are the game's default keyboard bindings (sithControl_RegisterKeyboardBindings).
@@ -140,14 +161,15 @@ typedef struct {
 // These all pass drags through to looking, so a thumb that lands on one while
 // aiming keeps aiming. Top left: next weapon, the FORCE WHEEL that picks the
 // power, and a button for each usable item while the player has it (field
-// light, IR goggles, bacta), each always in its own place. Top right: quick
+// light, IR goggles, bacta), each always in its own place, and under NEXT WPN
+// the GYRO switch for gyro aiming (only on devices with a gyroscope). Top right: quick
 // save (a short hold), quick load (a long one) and the menu. Holding MENU
 // opens a tray just under it: the keyboard, for the typing line (cheats), and
 // FPS, which shows or hides a frame rate readout left of QUICK SAVE. ACT is
 // the door/switch key.
 enum {
     BTN_FIRE, BTN_ALT, BTN_DUCK, BTN_ACT, BTN_JUMP, BTN_FORCE,
-    BTN_NEXTWPN, BTN_WHEEL, BTN_LIGHT, BTN_IR, BTN_BACTA,
+    BTN_NEXTWPN, BTN_WHEEL, BTN_LIGHT, BTN_IR, BTN_BACTA, BTN_GYRO,
     BTN_QUICKSAVE, BTN_QUICKLOAD, BTN_MENU,
     BTN_TRAYFPS, BTN_TRAYKEYS, // MENU's tray, hidden unless it is open
     BTN_COUNT
@@ -164,6 +186,7 @@ static iosTouchButton iosTouch_aButtons[] = {
     [BTN_LIGHT]     = { "LIGHT",       KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_FIELDLIGHT_IOS },
     [BTN_IR]        = { "IR",          KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_IRGOGGLES_IOS },
     [BTN_BACTA]     = { "BACTA",       KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_BACTATANK_IOS },
+    [BTN_GYRO]      = { "GYRO",        KIND_GYRO,     -1,                  20.0f, 0 },
     [BTN_QUICKSAVE] = { "QUICK\nSAVE", KIND_HOLDSAVE, SDL_SCANCODE_F9,     22.0f, 0 },
     [BTN_QUICKLOAD] = { "QUICK\nLOAD", KIND_HOLDLOAD, -1,                  22.0f, 0 },
     [BTN_MENU]      = { "MENU",        KIND_MENU,     -1,                  22.0f, 0 },
@@ -305,6 +328,22 @@ static CGFloat iosTouch_wheelR0 = 0.0, iosTouch_wheelR1 = 0.0;
 static int iosTouch_bTrayOpen = 0;
 static int iosTouch_menuPulse = 0;
 static int iosTouch_bShowFps = 0;
+// Gyro aiming: whether it is switched on, and whether motion updates are
+// coming in right now (only while it is on and the game is being played).
+// The updates arrive on iosTouch_pMotionQueue, which adds up how far the view
+// should turn (degrees: right, up) until iosTouch_Update takes it; the lock
+// guards that and iosTouch_gyroGen, which goes up at each start, so a sample
+// left over from an earlier run is dropped. iosTouch_gyroOrientation is the
+// screen's orientation (UIInterfaceOrientation), for turning device axes
+// into screen ones.
+static CMMotionManager* iosTouch_pMotion = nil;
+static NSOperationQueue* iosTouch_pMotionQueue = nil;
+static int iosTouch_bGyro = 0;
+static int iosTouch_bGyroRunning = 0;
+static os_unfair_lock iosTouch_gyroLock = OS_UNFAIR_LOCK_INIT;
+static double iosTouch_gyroRightDeg = 0.0, iosTouch_gyroUpDeg = 0.0;
+static int iosTouch_gyroGen = 0;
+static volatile long iosTouch_gyroOrientation = UIInterfaceOrientationLandscapeRight;
 
 static void iosTouch_QueuePress(int scancode)
 {
@@ -634,6 +673,12 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
         fpsLabel.hidden = !iosTouch_bShowFps;
         [self addSubview:fpsLabel];
 
+        // GYRO, if there is a gyroscope to aim with; lit while gyro aiming is on
+        if (!iosTouch_pMotion) iosTouch_pMotion = [[CMMotionManager alloc] init];
+        aButtonViews[BTN_GYRO].hidden = !iosTouch_pMotion.deviceMotionAvailable;
+        iosTouch_bGyro = iosTouch_pMotion.deviceMotionAvailable
+                         && [[NSUserDefaults standardUserDefaults] boolForKey:IOSTOUCH_GYRO_DEFAULTS_KEY];
+
         // Item buttons appear once the player has the item (see -tick)
         for (int i = 0; i < IOSTOUCH_NUM_BUTTONS; i++) {
             aItemAmount[i] = -1;
@@ -912,6 +957,9 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
     iosTouch_aButtons[BTN_LIGHT].x = left + 148;
     iosTouch_aButtons[BTN_IR].x = left + 204;
     iosTouch_aButtons[BTN_BACTA].x = left + 260;
+    // GYRO under NEXT WPN, out of the way of the items' row
+    iosTouch_aButtons[BTN_GYRO].x = left + 24;
+    iosTouch_aButtons[BTN_GYRO].y = top + 82;
     // Top right: QUICK SAVE, QUICK LOAD, MENU in the corner -- spaced well
     // apart, so a press meant for QUICK LOAD can't land on QUICK SAVE
     iosTouch_aButtons[BTN_QUICKSAVE].x = right - 156;
@@ -1018,11 +1066,13 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
         aButtonViews[i].backgroundColor = bWheel ? [UIColor colorWithRed:0.47 green:0.78 blue:1.0 alpha:0.55]
                                                  : [UIColor colorWithWhite:(bHeld ? 1.0 : 0.0) alpha:(bHeld ? 0.30 : 0.22)];
         // A switched-on item (field light, IR goggles), the open typing line
-        // (on MENU and the tray's keyboard) and the FPS readout being on (on
-        // the tray's FPS) stand out in yellow, at full strength
+        // (on MENU and the tray's keyboard), the FPS readout being on (on the
+        // tray's FPS) and gyro aiming being on (on GYRO) stand out in yellow,
+        // at full strength
         int bOn = (iosTouch_aButtons[i].kind == KIND_ITEM && aItemActive[i])
                   || ((i == BTN_TRAYKEYS || i == BTN_MENU) && jkHud_bChatOpen)
-                  || (i == BTN_TRAYFPS && iosTouch_bShowFps);
+                  || (i == BTN_TRAYFPS && iosTouch_bShowFps)
+                  || (i == BTN_GYRO && iosTouch_bGyro);
         int bTray = i == BTN_TRAYKEYS || i == BTN_TRAYFPS; // only there while the tray is open
         CGFloat alpha = (bHeld || bOn || bWheel || bTray) ? 1.0 : IOSTOUCH_IDLE_ALPHA;
         if (i == BTN_FORCE && bForceLabelSet && !forceLabelName) alpha *= 0.45; // no power to use yet
@@ -1173,6 +1223,14 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
     fpsLabel.text = @"-- FPS";
     bFpsBase = 0;
     [[NSUserDefaults standardUserDefaults] setBool:(iosTouch_bShowFps ? YES : NO) forKey:IOSTOUCH_FPS_DEFAULTS_KEY];
+    [self refreshButtonLooks];
+}
+
+// Gyro aiming on or off (motion updates start or stop in iosTouch_Update)
+- (void)setGyro:(int)bOn
+{
+    iosTouch_bGyro = bOn != 0;
+    [[NSUserDefaults standardUserDefaults] setBool:(iosTouch_bGyro ? YES : NO) forKey:IOSTOUCH_GYRO_DEFAULTS_KEY];
     [self refreshButtonLooks];
 }
 
@@ -1740,6 +1798,9 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
                     else if (b->kind == KIND_CHAT || b->kind == KIND_FPS) {
                         [self useTrayButton:s->button];
                     }
+                    else if (b->kind == KIND_GYRO) {
+                        [self setGyro:!iosTouch_bGyro];
+                    }
                     else if (b->kind == KIND_MENU && !s->bFired) {
                         // A tap: Escape (the menu, or closing the typing line)
                         iosTouch_menuPulse = IOSTOUCH_MENU_PULSE_UPDATES;
@@ -1997,6 +2058,128 @@ static UIBezierPath* IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, C
 
 @end
 
+// ---------------------------------------------------------------- gyro aiming
+
+// How far one motion sample turns the view, in degrees (right, up), dt
+// seconds after the last. The device's axes become the screen's (x right, y
+// up, z out of the screen) for the way it is held. Up and down is the turn
+// about the screen's x axis. Left and right is the turn about the real
+// vertical, from gravity, so it means the same however far back the phone is
+// tilted -- made up to 1.41 times bigger, but never more than the turn about
+// the screen's y and z axes put together, so that tilted part way back, a
+// turn about the screen's own upright counts in full (JoyShockMapper's
+// "player space").
+static void iosTouch_GyroSample(CMDeviceMotion* m, double dt, double* pRight, double* pUp)
+{
+    CMRotationRate r = m.rotationRate;
+    CMAcceleration g = m.gravity;
+    double rx, ry, gx, gy;
+    switch (iosTouch_gyroOrientation) {
+        case UIInterfaceOrientationLandscapeRight: // the phone's top on the left
+            rx = -r.y; ry = r.x; gx = -g.y; gy = g.x;
+            break;
+        case UIInterfaceOrientationLandscapeLeft:  // the phone's top on the right
+            rx = r.y; ry = -r.x; gx = g.y; gy = -g.x;
+            break;
+        case UIInterfaceOrientationPortraitUpsideDown:
+            rx = -r.x; ry = -r.y; gx = -g.x; gy = -g.y;
+            break;
+        default:
+            rx = r.x; ry = r.y; gx = g.x; gy = g.y;
+            break;
+    }
+    double rz = r.z, gz = g.z;
+
+    // radians a second; positive: turning left, and tipping the top edge toward
+// you (the back of the phone, the way the view looks, turns up)
+    double left = ry;
+    double up = rx;
+    double gl = sqrt(gx * gx + gy * gy + gz * gz);
+    if (gl > 0.5) {
+        double world = -(rx * gx + ry * gy + rz * gz) / gl; // about "up", gravity pointing down
+        double most = hypot(ry, rz);
+        left = copysign(fmin(fabs(world) * 1.41, most), world);
+    }
+
+    // Slow turns count for less
+    double speed = hypot(left, up);
+    double tighten = IOSTOUCH_GYRO_TIGHTEN * M_PI / 180.0;
+    if (speed < tighten) {
+        left *= speed / tighten;
+        up *= speed / tighten;
+    }
+
+    *pRight = -left * dt * 180.0 / M_PI;
+    *pUp = up * dt * 180.0 / M_PI;
+}
+
+static void iosTouch_StartGyro(void)
+{
+    if (!iosTouch_pMotionQueue) {
+        iosTouch_pMotionQueue = [[NSOperationQueue alloc] init];
+        iosTouch_pMotionQueue.maxConcurrentOperationCount = 1;
+        iosTouch_pMotionQueue.name = @"iosTouch gyro";
+    }
+    os_unfair_lock_lock(&iosTouch_gyroLock);
+    int gen = ++iosTouch_gyroGen;
+    iosTouch_gyroRightDeg = iosTouch_gyroUpDeg = 0.0;
+    os_unfair_lock_unlock(&iosTouch_gyroLock);
+
+    // Only this queue's blocks touch lastT, one at a time
+    __block NSTimeInterval lastT = 0.0;
+    iosTouch_pMotion.deviceMotionUpdateInterval = 1.0 / IOSTOUCH_GYRO_HZ;
+    [iosTouch_pMotion startDeviceMotionUpdatesToQueue:iosTouch_pMotionQueue withHandler:^(CMDeviceMotion* m, NSError* err) {
+        if (!m) return;
+        double dt = m.timestamp - lastT;
+        int bFirst = lastT == 0.0;
+        lastT = m.timestamp;
+        if (bFirst || dt <= 0.0 || dt > IOSTOUCH_GYRO_MAX_GAP) return;
+        double right, up;
+        iosTouch_GyroSample(m, dt, &right, &up);
+        os_unfair_lock_lock(&iosTouch_gyroLock);
+        if (gen == iosTouch_gyroGen) {
+            iosTouch_gyroRightDeg += right;
+            iosTouch_gyroUpDeg += up;
+        }
+        os_unfair_lock_unlock(&iosTouch_gyroLock);
+    }];
+    iosTouch_bGyroRunning = 1;
+}
+
+static void iosTouch_StopGyro(void)
+{
+    [iosTouch_pMotion stopDeviceMotionUpdates];
+    os_unfair_lock_lock(&iosTouch_gyroLock);
+    iosTouch_gyroGen++; // anything still queued is dropped
+    iosTouch_gyroRightDeg = iosTouch_gyroUpDeg = 0.0;
+    os_unfair_lock_unlock(&iosTouch_gyroLock);
+    iosTouch_bGyroRunning = 0;
+}
+
+// Once per frame: motion updates run only while gyro aiming is on and the
+// game is being played (bPlaying) -- not while the force wheel holds it
+// still, or the typing line is open -- and how far the phone turned since
+// last time goes in with the dragging, as mouse movement
+static void iosTouch_UpdateGyro(int bPlaying, UIView* v)
+{
+    int bWant = bPlaying && iosTouch_bGyro && iosTouch_pMotion.deviceMotionAvailable
+                && !iosTouch_bWheelOpen && !jkHud_bChatOpen;
+    if (bWant && !iosTouch_bGyroRunning) iosTouch_StartGyro();
+    else if (!bWant && iosTouch_bGyroRunning) iosTouch_StopGyro();
+    if (!iosTouch_bGyroRunning) return;
+
+    UIWindowScene* scene = v.window.windowScene;
+    if (scene) iosTouch_gyroOrientation = scene.interfaceOrientation;
+
+    os_unfair_lock_lock(&iosTouch_gyroLock);
+    double right = iosTouch_gyroRightDeg, up = iosTouch_gyroUpDeg;
+    iosTouch_gyroRightDeg = iosTouch_gyroUpDeg = 0.0;
+    os_unfair_lock_unlock(&iosTouch_gyroLock);
+    // dragging up (the mouse moving up) looks up
+    iosTouch_lookX += (float)(right * IOSTOUCH_GYRO_SCALE * IOSTOUCH_MOUSE_PER_DEG_X);
+    iosTouch_lookY -= (float)(up * IOSTOUCH_GYRO_SCALE * IOSTOUCH_MOUSE_PER_DEG_Y);
+}
+
 // ---------------------------------------------------------------- C API
 
 static IOSTouchOverlay* iosTouch_pOverlay = nil;
@@ -2062,7 +2245,11 @@ static void iosTouch_UpdateInPool(void)
         }
 
         [iosTouch_pOverlay tick];
+    }
 
+    iosTouch_UpdateGyro(bWant, iosTouch_pOverlay);
+
+    if (bWant) {
         int dx = (int)iosTouch_lookX;
         int dy = (int)iosTouch_lookY;
         iosTouch_lookX -= (float)dx;

@@ -241,7 +241,7 @@ screen, the camera cutout and the HUD.
 ```
  NEXT   FORCE   LIGHT  IR  BACTA         (FPS)  QUICK  QUICK  MENU
  WPN    WHEEL   (only items you have)            SAVE   LOAD
-                                                   [FPS] [keyboard]
+ GYRO                                              [FPS] [keyboard]
                                                    (MENU's tray, when held)
 
       (^^)  run marker                              JUMP   FORCE
@@ -270,6 +270,18 @@ Buttons are slightly see-through until you touch them.
 - **Look / aim:** drag anywhere else on the screen, which mostly means the
   right side. Dragging on FIRE, ALT, DUCK, ACT, JUMP or FORCE also turns
   the view, so if your thumb lands on one while you're aiming, keep dragging.
+- **Gyro aiming:** tap **GYRO** (top left, under NEXT WPN) to aim by turning
+  the phone as well. It turns yellow while it's on, and the app remembers the
+  setting next time you open it. Turn the phone left, right, up or down and
+  the view follows, a bit further than the phone turns. You can still drag to
+  look at the same time, for example to make big turns. Very slow movements
+  count for less, so the view doesn't shake with your hands. Gyro aiming
+  pauses while the Force wheel or the typing line is open. The game's mouse
+  sensitivity (*Setup > Controls > Mouse*) changes how fast it turns, the
+  same way it does for dragging. Think of the screen as a window: tip its
+  top edge towards you to look up, away from you to look down, and turn it
+  left or right as if turning your body. Left and right work the same however
+  far back you tilt the phone.
 
 ### Buttons
 
@@ -284,12 +296,13 @@ Buttons are slightly see-through until you touch them.
 | **NEXT WPN** | top left | Switches to your next weapon. |
 | **FORCE WHEEL** | top left | Opens the Force wheel to choose a power: see [The Force wheel](#the-force-wheel). |
 | **LIGHT**, **IR**, **BACTA** | top left, after FORCE WHEEL | Field light, IR goggles and bacta tank. Each button only appears once you have that item, and always in the same spot. LIGHT and IR turn yellow while switched on. BACTA shows how many you have when it's more than one. |
+| **GYRO** | top left, under NEXT WPN | Turns gyro aiming on or off (yellow while on). Only shown on devices with a gyroscope. |
 | **QUICK SAVE** | top right | **Hold** for about a third of a second: a ring fills, then the game quick saves. See [Saving and loading](#saving-and-loading). |
 | **QUICK LOAD** | top right | **Hold** for a full second: a ring fills, then your quick save loads. To cancel, lift before the ring fills (sliding off doesn't cancel it). |
 | **MENU** | top right corner | **Tap** opens the game's menu (objectives, map, Jedi powers, save, load, setup and more). **Hold** opens a small tray just under it, see below. |
 
 FIRE, ALT, DUCK, ACT, JUMP, FORCE and NEXT WPN act as soon as you touch them.
-LIGHT, IR, BACTA, MENU and the tray buttons act when you **lift** your finger
+LIGHT, IR, BACTA, GYRO, MENU and the tray buttons act when you **lift** your finger
 on them, so if you touch one by mistake, slide off before you lift.
 
 ### MENU's tray: keyboard and FPS

@@ -17,8 +17,13 @@
 //     beside JUMP (tap or hold to use the power it shows; a ring round it is
 //     the force meter, glowing when full); dragging on any of these also
 //     looks. Top left: next weapon, FORCE WHEEL, and a button for each
-//     usable item the player has (field light, IR goggles, bacta). Top
-//     right: quick save, quick load and menu.
+//     usable item the player has (field light, IR goggles, bacta); under
+//     next weapon, GYRO. Top right: quick save, quick load and menu.
+//   - GYRO (on devices with a gyroscope) turns gyro aiming on or off: turning
+//     the phone turns the view too, fed in as mouse movement along with any
+//     dragging (remembered between launches). It pauses while the force
+//     wheel or the typing line is open, and motion updates only run while it
+//     is on and a level is being played.
 //   - QUICK SAVE and QUICK LOAD only go off when held: a ring round the
 //     button fills while it is held, quickly for QUICK SAVE (0.3 s), slowly
 //     for QUICK LOAD (a second), and once it is full the game saves or
