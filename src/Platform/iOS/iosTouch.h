@@ -44,7 +44,7 @@
 //     looks. Top left: NEXT WPN, FORCE WHEEL, and a button for each usable
 //     item the player has (field light, IR goggles, bacta); under NEXT WPN,
 //     VIEW, which switches the camera view (first / third person, the
-//     game's - key). Top right: quick save, quick load and menu.
+//     game's F1 key). Top right: quick save, quick load and menu.
 //   - QUICK SAVE and QUICK LOAD only go off when held: a ring round the
 //     button fills while it is held (0.3 s), and once it is full the game
 //     saves or loads -- once, with the finger still down. Lifting sooner

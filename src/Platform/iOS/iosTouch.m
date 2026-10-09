@@ -225,7 +225,7 @@ typedef struct {
 // aiming keeps aiming. Top left: next weapon, the FORCE WHEEL that picks the
 // power, and a button for each usable item while the player has it (field
 // light, IR goggles, bacta), each always in its own place, and under NEXT
-// WPN, VIEW: the camera view key (-), first person / third person. Top right: quick
+// WPN, VIEW: the camera view key (F1), first person / third person. Top right: quick
 // save and quick load (short holds) and the menu. Holding MENU opens a tray
 // just under it: gyro aiming's sensitivity and mode, FPS, which shows or hides
 // a frame rate readout left of QUICK SAVE, and the keyboard, for the typing
@@ -252,7 +252,7 @@ static iosTouchButton iosTouch_aButtons[] = {
     [BTN_LIGHT]     = { "LIGHT",       KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_FIELDLIGHT_IOS },
     [BTN_IR]        = { "IR",          KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_IRGOGGLES_IOS },
     [BTN_BACTA]     = { "BACTA",       KIND_ITEM,     SDL_SCANCODE_RETURN, 22.0f, 0, SITHBIN_BACTATANK_IOS },
-    [BTN_VIEW]      = { "VIEW",        KIND_KEY,      SDL_SCANCODE_MINUS,  20.0f, 0 },
+    [BTN_VIEW]      = { "VIEW",        KIND_KEY,      SDL_SCANCODE_F1,     20.0f, 0 },
     [BTN_QUICKSAVE] = { "QUICK\nSAVE", KIND_HOLDSAVE, SDL_SCANCODE_F9,     22.0f, 0 },
     [BTN_QUICKLOAD] = { "QUICK\nLOAD", KIND_HOLDLOAD, -1,                  22.0f, 0 },
     [BTN_MENU]      = { "MENU",        KIND_MENU,     -1,                  22.0f, 0 },
