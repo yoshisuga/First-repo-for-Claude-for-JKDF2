@@ -18,8 +18,16 @@
 #include "Main/jkMain.h"
 #include "World/jkPlayer.h"
 #include "World/sithWorld.h"
+#include "General/stdFileUtil.h"
+#include "General/stdFnames.h"
+#include "General/util.h"
+#include "Main/jkRes.h"
 #include "stdPlatform.h"
 #include "jk.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include "SDL2_helper.h"
 
 #define IOSGAME_QUICKSAVE_FNAME "quicksave.jks"
 // How long (game time) a weapon picked on the touch overlay's wheel waits for
@@ -502,6 +510,85 @@ void iosGame_ToggleChat(void)
     }
     if (iosGame_GetPlayer())
         jkHud_Chat();
+}
+
+// ------------------------------------------------------------ startup game
+
+// The last game chosen at launch ("jk1" or "mots"), kept in Library/, which
+// the Files app doesn't show
+#define IOSGAME_STARTUP_CHOICE_FNAME "Library/openjkdf2_startup_game.txt"
+
+void iosGame_ChooseStartupGame(void)
+{
+    const char* home = getenv("HOME");
+    if (!home) return;
+
+    char docs[256], jk1[256], mots[256], key[256], choiceFile[256];
+    stdFnames_MakePath(docs, sizeof(docs), home, "Documents");
+    stdFnames_MakePath(jk1, sizeof(jk1), docs, "jk1");
+    stdFnames_MakePath(mots, sizeof(mots), docs, "mots");
+    stdFnames_MakePath(choiceFile, sizeof(choiceFile), home, IOSGAME_STARTUP_CHOICE_FNAME);
+    stdFileUtil_MkDir(jk1);
+    stdFileUtil_MkDir(mots);
+
+    // Each game is there once its folder has its jk_.cd; Mysteries of the
+    // Sith's has to be its own (as the Expansions & Mods screen checks)
+    stdFnames_MakePath(key, sizeof(key), jk1, "resource/jk_.cd");
+    int bHaveJk = util_FileExists(key);
+    stdFnames_MakePath(key, sizeof(key), mots, "resource/jk_.cd");
+    int bHaveMots = 0;
+    if (util_FileExists(key)) {
+        int keyval = jkRes_ReadKeyFromFile(key);
+        bHaveMots = JKRES_IS_MOTS_MAGIC(keyval);
+    }
+
+    int bLastMots = 0;
+    FILE* f = fopen(choiceFile, "r");
+    if (f) {
+        char buf[16] = {0};
+        if (fgets(buf, sizeof(buf), f)) bLastMots = !strncmp(buf, "mots", 4);
+        fclose(f);
+    }
+
+    int bMots = 0;
+    if (bHaveJk && bHaveMots) {
+        // The last game played is the default button
+        const SDL_MessageBoxButtonData buttons[] = {
+            { bLastMots ? 0 : SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Jedi Knight" },
+            { bLastMots ? SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT : 0, 1, "Mysteries of the Sith" },
+        };
+        const SDL_MessageBoxData box = {
+            SDL_MESSAGEBOX_INFORMATION | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT,
+            NULL,
+            "OpenJKDF2",
+            "Which game do you want to play?",
+            SDL_arraysize(buttons),
+            buttons,
+            NULL
+        };
+        int button = -1;
+        if (SDL_ShowMessageBox(&box, &button) && (button == 0 || button == 1)) {
+            bMots = button == 1;
+        }
+        else {
+            bMots = bLastMots; // no box (or no answer): the last game again
+        }
+    }
+    else {
+        bMots = bHaveMots && !bHaveJk;
+    }
+
+    Main_bMotsCompat = bMots;
+    openjkdf2_bOrigWasDF2 = !bMots;
+    stdPlatform_Printf("iOS: starting %s\n", bMots ? "Mysteries of the Sith" : "Jedi Knight");
+
+    if (bHaveJk && bHaveMots) {
+        f = fopen(choiceFile, "w");
+        if (f) {
+            fputs(bMots ? "mots\n" : "jk1\n", f);
+            fclose(f);
+        }
+    }
 }
 
 #endif // TARGET_IOS
