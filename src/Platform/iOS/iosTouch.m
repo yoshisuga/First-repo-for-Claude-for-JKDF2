@@ -491,6 +491,16 @@ static NSTimeInterval iosTouch_gyroLastT = 0.0;
 static double iosTouch_aGyroSmooth[IOSTOUCH_GYRO_SMOOTH_N][2];
 static int iosTouch_gyroSmoothNext = 0;
 static int iosTouch_bGyroRefusedOnQueue = 0;
+// How the device's motion axes sit against the screen, in quarter turns
+// (0: as on an iPhone, where the screen's portrait is the body's), or -1
+// until gravity has said: some devices' screens are turned against their
+// body (a quarter turn off, sideways turns would read as tilts). Decided by
+// which quarter turn has the screen's top pointing up for
+// IOSTOUCH_GYRO_QUARTER_VOTES samples running, the phone held well off flat;
+// decided again when the screen turns round. (Under iosTouch_gyroLock.)
+static int iosTouch_gyroQuarter = -1;
+static int iosTouch_gyroQuarterVote = -1, iosTouch_gyroQuarterVotes = 0;
+#define IOSTOUCH_GYRO_QUARTER_VOTES 15
 
 static void iosTouch_QueuePress(int scancode)
 {
@@ -679,6 +689,23 @@ static void iosTouch_GyroSample(double wx, double wy, double wz, double gx, doub
     iosTouch_gyroLastT = t;
     double s = iosTouch_gyroSide;
     double gn = sqrt(gx * gx + gy * gy + gz * gz);
+    // The device's axes against the screen's: which quarter turn puts the
+    // screen's top up (the screen's up, below, is -s*gy..s*gx turned by k)
+    if (iosTouch_gyroQuarter < 0 && s != 0.0 && gn > 0.1 && sqrt(gx * gx + gy * gy) / gn > 0.6) {
+        double aUp[4] = { s * gx, -s * gy, -s * gx, s * gy };
+        int best = 0;
+        for (int k = 1; k < 4; k++) {
+            if (aUp[k] > aUp[best]) best = k;
+        }
+        iosTouch_gyroQuarterVotes = (best == iosTouch_gyroQuarterVote) ? iosTouch_gyroQuarterVotes + 1 : 1;
+        iosTouch_gyroQuarterVote = best;
+        if (iosTouch_gyroQuarterVotes >= IOSTOUCH_GYRO_QUARTER_VOTES) iosTouch_gyroQuarter = best;
+    }
+    for (int k = 0; k < (iosTouch_gyroQuarter > 0 ? iosTouch_gyroQuarter : 0); k++) {
+        // a quarter turn of the device's x and y: (x, y) -> (-y, x)
+        double t = wx; wx = -wy; wy = t;
+        t = gx; gx = -gy; gy = t;
+    }
     if (s != 0.0 && dt > 0.0 && dt <= IOSTOUCH_GYRO_MAX_DT && gn > 0.1) {
         // The screen's axes as the player sees it: right, up, toward them.
         // How fast the phone turns about each (the right-hand way round: +
@@ -757,6 +784,8 @@ static void iosTouch_GyroRun(int bRun)
     iosTouch_gyroLastT = 0.0;
     iosTouch_gyroYaw = iosTouch_gyroPitch = 0.0;
     memset(iosTouch_aGyroSmooth, 0, sizeof(iosTouch_aGyroSmooth));
+    iosTouch_gyroQuarter = iosTouch_gyroQuarterVote = -1;
+    iosTouch_gyroQuarterVotes = 0;
     os_unfair_lock_unlock(&iosTouch_gyroLock);
     iosTouch_pMotion.deviceMotionUpdateInterval = 1.0 / IOSTOUCH_GYRO_HZ;
     // (the reference frame that needs no compass: the attitude isn't used)
@@ -861,6 +890,11 @@ static void iosTouch_GyroUpdate(int bShown, UIView* v)
     iosTouch_GyroRun(bShown && bActive && side != 0 && iosTouch_gyroMode != IOSTOUCH_GYRO_OFF && iosTouch_GyroAvailable());
 
     os_unfair_lock_lock(&iosTouch_gyroLock);
+    if (side != iosTouch_gyroSide) {
+        // turned round: which way the axes sit is decided again
+        iosTouch_gyroQuarter = iosTouch_gyroQuarterVote = -1;
+        iosTouch_gyroQuarterVotes = 0;
+    }
     iosTouch_gyroSide = side;
     double yaw = iosTouch_gyroYaw, pitch = iosTouch_gyroPitch;
     iosTouch_gyroYaw = iosTouch_gyroPitch = 0.0;
